@@ -1,0 +1,10 @@
+[project]
+name = "build-agent-adk-toolbox-cloudsql"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cloud-sql-python-connector[pg8000]>=1.20.3",
+    "python-dotenv>=1.2.2",
+]
