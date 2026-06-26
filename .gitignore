@@ -22,3 +22,7 @@ deploy.py
 # macOS system files
 .DS_Store
 **/.DS_Store
+
+# MCP Toolbox binary
+toolbox
+**/toolbox

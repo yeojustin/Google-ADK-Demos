@@ -1,66 +1,173 @@
-Set up project
+# Google Cloud SQL + MCP Toolbox Demo
 
+This repository demonstrates setting up a Google Cloud SQL (PostgreSQL) database with Vertex AI vector integration, and exposing it to LLM agents using the Model Context Protocol (MCP) Toolbox.
+
+---
+
+## Architecture & File Placement (Where do things go?)
+
+Before starting, it is helpful to understand the relationship between the `toolbox` binary and the `tools.yaml` configuration file:
+
+### 1. The `toolbox` Executable (Install Once)
+The `toolbox` is a **standalone compiled binary executable (not a Python library)**. You only need to download it once.
+
+*   **Global Installation (Recommended)**: To avoid copying the binary into every project folder, move it to your system's global executable path:
+    ```bash
+    sudo mv toolbox /usr/local/bin/
+    ```
+    After doing this, you can run the server simply as `toolbox` instead of `./toolbox` from any project folder.
+*   **Local Installation**: You can keep it locally in the project root folder and execute it as `./toolbox`.
+
+### 2. The `tools.yaml` Configuration (Project Specific)
+The `tools.yaml` file defines the connection parameters for the database and maps your specific SQL queries to agent-callable tools. 
+*   Because this configuration is specific to the "restaurant" database and schema, `tools.yaml` **must live in the root of your project directory** (`./tools.yaml`).
+
+---
+
+## Chronological Step-by-Step Guide
+
+Follow these steps in order to provision the infrastructure, verify the database, configure the MCP server, and run tests.
+
+### Step 1: Initialize Project & Install Packages
+Initialize the project environment and add required dependencies:
+
+```bash
 uv init
 uv add cloud-sql-python-connector --extra pg8000
 uv add python-dotenv
+```
 
-Execute Set up Script
-mkdir -p ~/build-agent-adk-toolbox-cloudsql/logs
+### Step 2: Configure Environment Variables & GCP APIs
+1. Create a `.env` file in the root of the project:
+   ```env
+   # Vertex AI / Gemini API Settings
+   GOOGLE_CLOUD_LOCATION=global
+
+   # Cloud SQL & Region Settings
+   REGION=us-central1
+   GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+   DB_PASSWORD=restaurant-pwd
+   DB_INSTANCE=restaurant-instance
+   DB_NAME=restaurant_db
+   ```
+
+2. Enable the required Google Cloud APIs in your project:
+   ```bash
+   gcloud services enable \
+     aiplatform.googleapis.com \
+     sqladmin.googleapis.com \
+     compute.googleapis.com \
+     run.googleapis.com \
+     cloudbuild.googleapis.com \
+     artifactregistry.googleapis.com
+   ```
+
+3. Bind active project configurations:
+   ```bash
+   bash setup_verify_trial_project.sh && source .env
+   ```
+
+### Step 3: Provision and Seed the Database
+Run the setup script in the background to provision Cloud SQL, grant Vertex AI IAM access, create tables, and seed the menu items:
+
+```bash
+mkdir -p logs
 bash scripts/setup_database.sh > logs/database_setup.log 2>&1 &
+```
 
-Set up .env
-echo "DB_PASSWORD=restaurant-pwd" >> .env
-echo "DB_INSTANCE=restaurant-instance" >> .env
-echo "DB_NAME=restaurant_db" >> .env
-source .env
+> [!NOTE]
+> Database creation can take 5–10 minutes. You can monitor the progress with:
+> `tail -f logs/database_setup.log`
 
-# For Vertex AI / Gemini API calls
+### Step 4: Verify the Database Seeding
+Verify that the database has been successfully initialized and seeded with 15 menu items along with their Vertex AI vector embeddings:
 
-echo "GOOGLE_CLOUD_LOCATION=global" > .env
+```bash
+uv run python scripts/verify_database.py
+```
 
-# For Cloud SQL, Cloud Run, Artifact Registry
+Expected output:
+```
+Menu Items: 15/15
+Embeddings: 15/15
 
-echo "REGION=us-central1" >> .env
+✓ Database ready!
+```
 
-gcloud services enable \
- aiplatform.googleapis.com \
- sqladmin.googleapis.com \
- compute.googleapis.com \
- run.googleapis.com \
- cloudbuild.googleapis.com \
- artifactregistry.googleapis.com
+---
 
-bash setup_verify_trial_project.sh && source .env
+## PART 1: Running & Querying the MCP Server Directly (No ADK)
 
-Understanding the setup script scripts/setup_database.sh
-Now let's try to understand the setup script we previously configured. It does the following process
+### Step 5: Download the macOS Binary
+Download the macOS Apple Silicon (arm64) version of the MCP Toolbox binary and make it executable:
 
-The very first command we execute there is the gcloud sql instances create command with the following flag
-db-custom-1-3840 is the smallest dedicated-core Cloud SQL tier (1 vCPU, 3.75 GB RAM) in ENTERPRISE edition. You can read more details in here. A dedicated core is required for the Vertex AI ML integration — shared-core tiers (db-f1-micro, db-g1-small) do not support it.
---root-password sets the password for the default postgres user.
---enable-google-ml-integration enables Cloud SQL's built-in integration with Vertex AI, which lets you call embedding models directly from SQL using the embedding() function.
-Verify whether the instance already in RUNNABLE status
-Grant the Cloud SQL instance's service account permission to call Vertex AI using the gcloud projects add-iam-policy-binding command. This is required for the built-in embedding() function that we will use when seeding the database
-Creating the database
-Executing the seeding script setup_restaurant_db.py script
-Understanding the seed script scripts/setup_restaurant_db.py
-Now, moving to the seeding script, this script do the following things:
+```bash
+curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.1.0/darwin/arm64/toolbox
+chmod +x toolbox
+```
 
-Initialize connection to the database instance
-Installs two PostgreSQL extensions:
-google_ml_integration — provides the embedding() SQL function, which calls Vertex AI embedding models directly from SQL. This is a database-level extension that makes ML functions available inside restaurant_db. The instance-level flag (--enable-google-ml-integration) you set during instance creation allows the Cloud SQL VM to reach Vertex AI — the extension makes the SQL functions available within this specific database.
-vector (pgvector) — adds the vector data type and distance operators for storing and querying embeddings.
-Create the table, notes that the description_embedding column is vector(3072) — a pgvector column that stores 3072-dimensional vectors.
-Seed the initial menu items data
-Generate the embedding data from description field and fill the description_embedding using the built in vertex integration via the embedding() function
-embedding('gemini-embedding-001', description) — calls Vertex AI's Gemini embedding model directly from SQL, passing each job's description text. This is the google_ml_integration extension you installed in the seed script.
-::vector — casts the returned float array to pgvector's vector type so it can be stored and queried with distance operators.
-The UPDATE runs across all 15 rows, generating one 3072-dimensional embedding per job description.
+*(Optional: Run `sudo mv toolbox /usr/local/bin/` to install it globally).*
 
-MCP Toolbox for Databases is an open-source MCP server built specifically for database access. Without it, you would write Python functions that open database connections, manage connection pools, construct parameterized queries to prevent SQL injection, handle errors, and embed all of that code inside your agent. Every agent that needs database access repeats this work. Changing a query means redeploying the agent.
+### Step 6: Verify YAML Config via Direct Invocation
+Before starting the network server, test that the connection settings in `tools.yaml` are correct by executing a direct tool invocation:
 
-With Toolbox, you write a YAML file. Each tool maps to a parameterized SQL statement. Toolbox handles connection pooling, parameterized queries, authentication, and observability. Tools are decoupled from the agent — update a query by editing tools.yaml and restarting Toolbox, without touching agent code. The same tools work across ADK, LangGraph, LlamaIndex, or any MCP-compatible framework.
+```bash
+set -a; source .env; set +a
+./toolbox invoke search-menu '{"category": "Main Course", "cuisine_type": "Italian"}' --config tools.yaml
+```
 
-Now, we need to create a file called tools.yaml in the Cloud Shell Editor to set up our tools configuration
+If successful, it returns the raw JSON list of matching menu items.
 
-The file uses multi-document YAML — each block separated by --- is a standalone resource. Every resource has a kind that declares what it is (sources for database connections, tools for agent-callable actions) and a type that specifies the backend (cloud-sql-postgres for the source, postgres-sql for SQL-based tools). A tool references its source by name, which is how Toolbox knows which connection pool to execute against. Environment variables use ${VAR_NAME} syntax and are resolved at startup.
+### Step 7: Run the Toolbox HTTP Server
+Launch the toolbox server as a background service:
+
+```bash
+set -a; source .env; set +a
+./toolbox --config tools.yaml --enable-api --port 5001 > logs/mcp_toolbox.log 2>&1 &
+```
+
+> [!IMPORTANT]
+> **macOS AirPlay Port Conflict**: macOS uses port `5000` by default for the `ControlCenter` daemon (AirPlay/AirTunes). Always use `--port 5001` on macOS to avoid traffic hijacking.
+
+Verify the server started successfully by checking the logs (`logs/mcp_toolbox.log`):
+```
+... INFO "Initialized 1 sources: restaurant-db"
+... INFO "Server ready to serve!"
+```
+
+### Step 8: Query the Running Server Directly (HTTP REST)
+You can call the REST API endpoints directly without any agent wrappers:
+
+1. **List the available tools schema**:
+   ```bash
+   curl -s http://localhost:5001/api/toolset | python3 -m json.tool
+   ```
+
+2. **Invoke a database tool via POST query**:
+   ```bash
+   curl -s -X POST http://localhost:5001/api/tool/search-menu/invoke \
+     -H "Content-Type: application/json" \
+     -d '{"category": "Main Course", "cuisine_type": "Italian"}' | jq '.result | fromjson'
+   ```
+
+---
+
+## PART 2: Integrating with Google ADK Agent
+
+Once you've verified that the standalone MCP server is functioning, connect it to a Google Agent Development Kit (ADK) agent.
+
+### Step 9: Install ADK Package Dependencies
+```bash
+uv add google-adk mcp
+```
+
+### Step 10: Code Files
+* **`agent.py`**: Defines the `root_agent` and attaches the `McpToolset` pointing to the Server-Sent Events (SSE) stream endpoint `http://localhost:5001/mcp/sse`.
+* **`main.py`**: A helper execution script that sets up environment flags, configures memory/sessions, runs the agent via `InMemoryRunner`, and prints clean text responses.
+
+### Step 11: Run the Agent
+Execute the runner client script to chat with the database agent:
+
+```bash
+uv run python main.py "What Italian dishes do you have?"
+```
