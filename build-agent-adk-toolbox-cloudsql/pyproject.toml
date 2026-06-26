@@ -6,7 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "cloud-sql-python-connector[pg8000]>=1.20.3",
-    "google-adk>=2.3.0",
+    "google-adk==1.29.0",
+    "jq>=1.11.0",
     "mcp>=1.28.0",
     "python-dotenv>=1.2.2",
+    "toolbox-adk==1.0.0",
 ]
