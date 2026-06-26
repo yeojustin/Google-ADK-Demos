@@ -1,5 +1,12 @@
 # Google Cloud SQL + MCP Toolbox Demo
 
+> [!NOTE]
+> **Adapted From Codelab**: This repository is adapted from the Google Developer Codelab [Database as a Tool: Agentic RAG with ADK, MCP Toolbox, and Cloud SQL](https://codelabs.developers.google.com/agentic-rag-toolbox-cloudsql).
+>
+> For details on running locally and setting up the database, please refer to [Step 5 of the Codelab (Running the MCP Toolbox Server)](https://codelabs.developers.google.com/agentic-rag-toolbox-cloudsql#5).
+
+---
+
 This repository demonstrates setting up a Google Cloud SQL (PostgreSQL) database with Vertex AI vector integration, and exposing it to LLM agents using the Model Context Protocol (MCP) Toolbox.
 
 ---
@@ -9,18 +16,21 @@ This repository demonstrates setting up a Google Cloud SQL (PostgreSQL) database
 Before starting, it is helpful to understand the relationship between the `toolbox` binary and the `tools.yaml` configuration file:
 
 ### 1. The `toolbox` Executable (Install Once)
+
 The `toolbox` is a **standalone compiled binary executable (not a Python library)**. You only need to download it once.
 
-*   **Global Installation (Recommended)**: To avoid copying the binary into every project folder, move it to your system's global executable path:
-    ```bash
-    sudo mv toolbox /usr/local/bin/
-    ```
-    After doing this, you can run the server simply as `toolbox` instead of `./toolbox` from any project folder.
-*   **Local Installation**: You can keep it locally in the project root folder and execute it as `./toolbox`.
+- **Global Installation (Recommended)**: To avoid copying the binary into every project folder, move it to your system's global executable path:
+  ```bash
+  sudo mv toolbox /usr/local/bin/
+  ```
+  After doing this, you can run the server simply as `toolbox` instead of `./toolbox` from any project folder.
+- **Local Installation**: You can keep it locally in the project root folder and execute it as `./toolbox`.
 
 ### 2. The `tools.yaml` Configuration (Project Specific)
-The `tools.yaml` file defines the connection parameters for the database and maps your specific SQL queries to agent-callable tools. 
-*   Because this configuration is specific to the "restaurant" database and schema, `tools.yaml` **must live in the root of your project directory** (`./tools.yaml`).
+
+The `tools.yaml` file defines the connection parameters for the database and maps your specific SQL queries to agent-callable tools.
+
+- Because this configuration is specific to the "restaurant" database and schema, `tools.yaml` **must live in the root of your project directory** (`./tools.yaml`).
 
 ---
 
@@ -29,6 +39,7 @@ The `tools.yaml` file defines the connection parameters for the database and map
 Follow these steps in order to provision the infrastructure, verify the database, configure the MCP server, and run tests.
 
 ### Step 1: Initialize Project & Install Packages
+
 Initialize the project environment and add required dependencies:
 
 ```bash
@@ -38,7 +49,9 @@ uv add python-dotenv
 ```
 
 ### Step 2: Configure Environment Variables & GCP APIs
+
 1. Create a `.env` file in the root of the project:
+
    ```env
    # Vertex AI / Gemini API Settings
    GOOGLE_CLOUD_LOCATION=global
@@ -52,6 +65,7 @@ uv add python-dotenv
    ```
 
 2. Enable the required Google Cloud APIs in your project:
+
    ```bash
    gcloud services enable \
      aiplatform.googleapis.com \
@@ -63,11 +77,13 @@ uv add python-dotenv
    ```
 
 3. Bind active project configurations:
+
    ```bash
    bash setup_verify_trial_project.sh && source .env
    ```
 
 ### Step 3: Provision and Seed the Database
+
 Run the setup script in the background to provision Cloud SQL, grant Vertex AI IAM access, create tables, and seed the menu items:
 
 ```bash
@@ -80,6 +96,7 @@ bash scripts/setup_database.sh > logs/database_setup.log 2>&1 &
 > `tail -f logs/database_setup.log`
 
 ### Step 4: Verify the Database Seeding
+
 Verify that the database has been successfully initialized and seeded with 15 menu items along with their Vertex AI vector embeddings:
 
 ```bash
@@ -87,6 +104,7 @@ uv run python scripts/verify_database.py
 ```
 
 Expected output:
+
 ```
 Menu Items: 15/15
 Embeddings: 15/15
@@ -99,6 +117,7 @@ Embeddings: 15/15
 ## PART 1: Running & Querying the MCP Server Directly (No ADK)
 
 ### Step 5: Download the macOS Binary
+
 Download the macOS Apple Silicon (arm64) version of the MCP Toolbox binary and make it executable:
 
 ```bash
@@ -106,9 +125,10 @@ curl -O https://storage.googleapis.com/mcp-toolbox-for-databases/v1.1.0/darwin/a
 chmod +x toolbox
 ```
 
-*(Optional: Run `sudo mv toolbox /usr/local/bin/` to install it globally).*
+_(Optional: Run `sudo mv toolbox /usr/local/bin/` to install it globally)._
 
 ### Step 6: Verify YAML Config via Direct Invocation
+
 Before starting the network server, test that the connection settings in `tools.yaml` are correct by executing a direct tool invocation:
 
 ```bash
@@ -119,6 +139,7 @@ set -a; source .env; set +a
 If successful, it returns the raw JSON list of matching menu items.
 
 ### Step 7: Run the Toolbox HTTP Server
+
 Launch the toolbox server as a background service:
 
 ```bash
@@ -130,20 +151,24 @@ set -a; source .env; set +a
 > **macOS AirPlay Port Conflict**: macOS uses port `5000` by default for the `ControlCenter` daemon (AirPlay/AirTunes). Always use `--port 5001` on macOS to avoid traffic hijacking.
 
 Verify the server started successfully by checking the logs (`logs/mcp_toolbox.log`):
+
 ```
 ... INFO "Initialized 1 sources: restaurant-db"
 ... INFO "Server ready to serve!"
 ```
 
 ### Step 8: Query the Running Server Directly (HTTP REST)
+
 You can call the REST API endpoints directly without any agent wrappers:
 
 1. **List the available tools schema**:
+
    ```bash
    curl -s http://localhost:5001/api/toolset | python3 -m json.tool
    ```
 
 2. **Invoke a database tool via POST query**:
+
    ```bash
    curl -s -X POST http://localhost:5001/api/tool/search-menu/invoke \
      -H "Content-Type: application/json" \
@@ -157,17 +182,83 @@ You can call the REST API endpoints directly without any agent wrappers:
 Once you've verified that the standalone MCP server is functioning, connect it to a Google Agent Development Kit (ADK) agent.
 
 ### Step 9: Install ADK Package Dependencies
+
 ```bash
 uv add google-adk mcp
 ```
 
 ### Step 10: Code Files
-* **`agent.py`**: Defines the `root_agent` and attaches the `McpToolset` pointing to the Server-Sent Events (SSE) stream endpoint `http://localhost:5001/mcp/sse`.
-* **`main.py`**: A helper execution script that sets up environment flags, configures memory/sessions, runs the agent via `InMemoryRunner`, and prints clean text responses.
+
+- **`agent.py`**: Defines the `root_agent` and attaches the `McpToolset` pointing to the Server-Sent Events (SSE) stream endpoint `http://localhost:5001/mcp/sse`.
+- **`main.py`**: A helper execution script that sets up environment flags, configures memory/sessions, runs the agent via `InMemoryRunner`, and prints clean text responses.
 
 ### Step 11: Run the Agent
+
 Execute the runner client script to chat with the database agent:
 
 ```bash
 uv run python main.py "What Italian dishes do you have?"
 ```
+
+---
+
+## PART 3: Deploying to Google Cloud Run
+
+To host both the database toolbox and your restaurant agent on Google Cloud Run, follow the steps below.
+
+### Step 12: Prepare the Toolbox Service Deployment Context
+
+Since Cloud Run containers execute in a Linux x86-64 environment, you must download the **Linux x86-64 binary** version of the toolbox for the deployment package:
+
+1. Download the Linux version:
+   ```bash
+   curl -o deploy-toolbox/toolbox https://storage.googleapis.com/mcp-toolbox-for-databases/v1.1.0/linux/amd64/toolbox
+   chmod +x deploy-toolbox/toolbox
+   ```
+2. Make sure your `deploy-toolbox/Dockerfile` is present and targets a Linux base image copying `toolbox` and `tools.yaml`.
+
+### Step 13: Deploy the Standalone MCP Toolbox Service
+
+Deploy the container to Cloud Run. Make sure to allow unauthenticated invocations so the agent service can communicate with it:
+
+```bash
+gcloud run deploy toolbox-service \
+  --source deploy-toolbox/ \
+  --region us-central1 \
+  --set-env-vars "DB_PASSWORD=$DB_PASSWORD,DB_INSTANCE=$DB_INSTANCE,DB_NAME=$DB_NAME,GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,REGION=$REGION,GOOGLE_CLOUD_LOCATION=$GOOGLE_CLOUD_LOCATION" \
+  --allow-unauthenticated \
+  --quiet
+```
+
+Once completed, note the output **Service URL**.
+
+### Step 14: Deploy the Restaurant Agent Web UI Service
+
+Deploy the main agent service to Cloud Run. By default, Google Cloud Buildpacks will run the headless API server (`adk api_server`). To serve the **Web UI**, we explicitly instruct Cloud Run to execute the `adk web` command located in the virtual environment.
+
+Deploy the agent (replace `TOOLBOX_URL` with your actual toolbox service URL from the previous step):
+
+```bash
+gcloud run deploy restaurant-agent \
+  --source . \
+  --region us-central1 \
+  --set-env-vars "GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_LOCATION=global,GOOGLE_GENAI_USE_VERTEXAI=TRUE,TOOLBOX_URL=https://toolbox-service-<gcp_project_number>.us-central1.run.app" \
+  --command "/layers/google.python.uv/uv-dependencies/.venv/bin/adk" \
+  --args "web,--host,0.0.0.0,--port,8080" \
+  --allow-unauthenticated \
+  --quiet
+```
+
+### Step 15: Access the Web UI
+
+Open the deployed `restaurant-agent` URL. It will automatically redirect to `/dev-ui/` and load the ADK Agent playground, allowing you to converse with the agent.
+
+---
+
+## Key Deployment Troubleshooting & Fixes Reference
+
+When deploying to Google Cloud Run, three critical configurations were fixed:
+
+1. **Linux x86-64 binary compatibility**: The standalone `deploy-toolbox/toolbox` binary must be compiled for Linux AMD64, not macOS Darwin.
+2. **Access Control (403 Forbidden)**: Standalone microservices on Cloud Run require explicit invocation permissions. The toolbox service must have the `roles/run.invoker` role assigned to `allUsers` to receive calls from the agent.
+3. **Web UI Startup Entrypoint**: Overriding the entrypoint command and args to target `/layers/google.python.uv/uv-dependencies/.venv/bin/adk web` ensures that the development playground Web UI files are registered and served at `/dev-ui/` rather than launching in API-only mode.

@@ -26,3 +26,9 @@ deploy.py
 # MCP Toolbox binary
 toolbox
 **/toolbox
+
+# Log files
+logs/
+*.log
+**/logs/
+**/*.log

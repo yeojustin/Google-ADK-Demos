@@ -4,7 +4,7 @@ import os
 from google.adk.agents import LlmAgent
 from toolbox_adk import ToolboxToolset
 
-TOOLBOX_URL = os.environ.get("TOOLBOX_URL", "http://127.0.0.1:5000")
+TOOLBOX_URL = os.environ.get("TOOLBOX_URL", "http://127.0.0.1:5001")
 
 toolbox = ToolboxToolset(TOOLBOX_URL)
 
