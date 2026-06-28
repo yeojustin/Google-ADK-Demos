@@ -1,0 +1,5 @@
+google-adk
+langchain-community
+langchain
+wikipedia
+google

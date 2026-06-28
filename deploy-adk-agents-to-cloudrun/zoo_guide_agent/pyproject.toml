@@ -1,12 +1,9 @@
 [project]
-name = "google-adk-demos"
+name = "zoo-guide-agent"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
-
-[tool.uv.workspace]
-members = [
-    "build-agent-adk-toolbox-cloudsql",
+dependencies = [
+    "google-adk>=2.3.0",
 ]
