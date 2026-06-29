@@ -1,5 +1,5 @@
 google-adk
 langchain-community
-langchain
+langchain==0.1.0
 wikipedia
 google
